@@ -66,42 +66,110 @@ def interactive_menu(stdscr, title, options, context_dict=None):
             return current_row
 
 def curses_main(stdscr):
-    grub_context = "View and modify your GRUB boot entries.\n\nCurrent Configuration:"
     from fospx_kernel_mgr.core.grub import GrubManager
-    g_man = GrubManager()
-    cfg = g_man.read_default_config()
-    grub_context += f"\n- Default Entry: {cfg.get('GRUB_DEFAULT', '0')}"
-    grub_context += f"\n- Timeout: {cfg.get('GRUB_TIMEOUT', '5')}s"
-    
-    entries = g_man.get_grub_entries()
-    grub_context += "\n\nLive GRUB Order:"
-    for e in entries:
-        grub_context += f"\n- {e['title'][:40]}"
-        
-    context_dict = {
-        0: "Connects to kernel.org to list the latest\nupstream kernel versions, downloads the\ntarball, and compiles it for your system.",
-        1: grub_context,
-        2: "View FOSPX Kernel Manager\nVersion and License information.",
-        3: "Exit application."
-    }
+    from fospx_kernel_mgr.core.kernel import KernelManager
+    from fospx_kernel_mgr.core.safety import SafetyManager
+    from fospx_kernel_mgr.core.security import SecurityManager
+    import subprocess, os, sys
     
     while True:
-        main_options = ["Compile & Install Kernel", "Boot Manager", "About", "Exit"]
+        main_options = ["Kernels", "Boot Manager", "Safety & Security", "About", "Exit"]
+        
+        # Build context dict
+        g_man = GrubManager()
+        cfg = g_man.read_default_config()
+        grub_context = "View and modify your GRUB boot entries.\n\nCurrent Configuration:"
+        grub_context += f"\n- Default Entry: {cfg.get('GRUB_DEFAULT', '0')}"
+        grub_context += f"\n- Timeout: {cfg.get('GRUB_TIMEOUT', '5')}s"
+        
+        entries = g_man.get_grub_entries()
+        grub_context += "\n\nLive GRUB Order:"
+        base_os = entries[0]['title'] if entries else "0"
+        for e in entries:
+            grub_context += f"\n- {e['title'][:40]}"
+            if e.get('type') == 'submenu':
+                for child in e.get('children', []):
+                    grub_context += f"\n   > {child['title'][:35]}"
+            
+        k_man = KernelManager()
+        installed = k_man.get_installed_kernels()
+        kernels_context = "Kernels Management\n\nInstalled Kernels:"
+        if not installed:
+            kernels_context += "\n- No custom kernels found."
+        else:
+            for k in installed:
+                kernels_context += f"\n- Linux {k}"
+                
+        safety_context = "Safety & Security\n\n- Manage system snapshots\n- Configure Secure Boot (MOK)\n- Analyze kernel panics"
+        
+        context_dict = {
+            0: kernels_context,
+            1: grub_context,
+            2: safety_context,
+            3: "View FOSPX Kernel Manager\nVersion and License information.",
+            4: "Exit application."
+        }
+        
         choice = interactive_menu(stdscr, "=== FOSPX Kernel Manager ===", main_options, context_dict)
         
-        if choice == 3:
+        if choice == 4:
             break
-        elif choice == 2:
+        elif choice == 3:
             about_opts = ["Back"]
-            title = "--- About ---\nFOSPX Kernel/GRUB Manager\nBootloader & Kernel Tool\n"
-            interactive_menu(stdscr, title, about_opts)
+            title = "--- About ---"
+            about_context = "FOSPX Kernel/GRUB Manager\nVersion: 0.1.0\n\nDeveloper: Barın Güzeldemirci\nContact: baringuzeldemir@gmail.com\n\nLicense: GPL-3.0-or-later\nThis program is free software."
+            interactive_menu(stdscr, title, about_opts, {0: about_context})
+        elif choice == 2:
+            while True:
+                safety_opts = ["Install Dependencies", "Create Snapshot", "Generate MOK", "Enroll MOK", "Analyze Panics", "Back"]
+                s_choice = interactive_menu(stdscr, "--- Safety & Security ---", safety_opts)
+                if s_choice == 5:
+                    break
+                elif s_choice == 0:
+                    curses.endwin()
+                    print("Installing dependencies...")
+                    subprocess.run(["sudo", sys.executable, "-c", "from fospx_kernel_mgr.core.safety import SafetyManager; SafetyManager().install_dependencies()"])
+                    input("Press Enter to continue...")
+                    stdscr.clear()
+                elif s_choice == 1:
+                    curses.endwin()
+                    print("Creating snapshot...")
+                    subprocess.run(["sudo", sys.executable, "-c", "from fospx_kernel_mgr.core.safety import SafetyManager; sm=SafetyManager(); _,msg=sm.create_snapshot(); print(msg)"])
+                    input("Press Enter to continue...")
+                    stdscr.clear()
+                elif s_choice == 2:
+                    curses.endwin()
+                    print("Generating MOK...")
+                    subprocess.run(["sudo", sys.executable, "-c", "from fospx_kernel_mgr.core.security import SecurityManager; sm=SecurityManager(); _,msg=sm.generate_mok(); print(msg)"])
+                    input("Press Enter to continue...")
+                    stdscr.clear()
+                elif s_choice == 3:
+                    curses.endwin()
+                    import getpass
+                    pw = getpass.getpass("Enter new MOK password: ")
+                    subprocess.run(["sudo", sys.executable, "-c", f"from fospx_kernel_mgr.core.security import SecurityManager; sm=SecurityManager(); _,msg=sm.enroll_mok('{pw}'); print(msg)"])
+                    input("Press Enter to continue...")
+                    stdscr.clear()
+                elif s_choice == 4:
+                    curses.endwin()
+                    sm = SafetyManager()
+                    print(sm.analyze_panic())
+                    input("Press Enter to continue...")
+                    stdscr.clear()
+                    
         elif choice == 1:
             while True:
-                grub_opts = ["Set Default Boot Entry", "Restore Factory Defaults", "Back"]
-                g_choice = interactive_menu(stdscr, "--- Boot Manager ---", grub_opts)
-                if g_choice == 2:
+                grub_opts = ["Set Default Boot Entry", "Configure GRUB (Interactive)", "Restore Factory Defaults", "Back"]
+                g_context_dict = {
+                    0: grub_context,
+                    1: grub_context,
+                    2: grub_context,
+                    3: grub_context
+                }
+                g_choice = interactive_menu(stdscr, "--- Boot Manager ---", grub_opts, g_context_dict)
+                if g_choice == 3:
                     break
-                elif g_choice == 1:
+                elif g_choice == 2:
                     curses.endwin()
                     manager = GrubManager()
                     snaps = manager.backup.list_snapshots()
@@ -112,16 +180,44 @@ def curses_main(stdscr):
                         print("No backups found.")
                     input()
                     stdscr.clear()
+                elif g_choice == 1:
+                    stdscr.clear()
+                    stdscr.addstr(1, 2, "Enter GRUB Timeout (empty to cancel): ", curses.A_BOLD)
+                    stdscr.refresh()
+                    curses.echo()
+                    timeout_bytes = stdscr.getstr(3, 2)
+                    timeout = timeout_bytes.decode('utf-8').strip()
+                    if not timeout:
+                        curses.noecho()
+                        stdscr.clear()
+                        continue
+                    stdscr.clear()
+                    stdscr.addstr(1, 2, "Enter CMDLINE_DEFAULT (empty to keep): ", curses.A_BOLD)
+                    stdscr.refresh()
+                    cmdline_bytes = stdscr.getstr(3, 2)
+                    curses.noecho()
+                    cmdline = cmdline_bytes.decode('utf-8').strip()
+                    if not cmdline:
+                        cmdline = cfg.get("GRUB_CMDLINE_LINUX_DEFAULT", "")
+                    curses.endwin()
+                    manager = GrubManager()
+                    manager.write_advanced_config({"GRUB_TIMEOUT": timeout, "GRUB_CMDLINE_LINUX_DEFAULT": cmdline})
+                    print("GRUB updated. Press Enter.")
+                    input()
+                    stdscr.clear()
                 elif g_choice == 0:
                     stdscr.clear()
-                    stdscr.addstr(1, 2, "Enter kernel title to set as default (or '0' for base OS): ", curses.A_BOLD)
+                    stdscr.addstr(1, 2, "Enter exact title (or '0' for Base OS, empty to cancel): ", curses.A_BOLD)
                     stdscr.refresh()
                     curses.echo()
                     title_bytes = stdscr.getstr(3, 2)
                     curses.noecho()
-                    title = title_bytes.decode('utf-8')
+                    title = title_bytes.decode('utf-8').strip()
+                    if not title:
+                        stdscr.clear()
+                        continue
                     if title == "0":
-                        title = "Advanced options for Debian GNU/Linux>Debian GNU/Linux"
+                        title = base_os
                     manager = GrubManager()
                     manager.set_default_kernel(title)
                     stdscr.addstr(5, 2, "Updated GRUB default. Press any key to continue.", curses.A_BOLD)
@@ -130,73 +226,87 @@ def curses_main(stdscr):
                     stdscr.clear()
                     
         elif choice == 0:
-            stdscr.clear()
-            stdscr.addstr(1, 2, "Fetching kernels from kernel.org...", curses.A_BOLD)
-            stdscr.refresh()
-            
-            manager = KernelManager()
-            try:
-                kernels = manager.fetch_available_kernels()
-                if not kernels:
-                    interactive_menu(stdscr, "No compatible kernels found.", ["Back"])
-                    continue
+            while True:
+                k_opts = ["View Installed Kernels", "Compile & Install Upstream Kernel", "Back"]
+                k_choice = interactive_menu(stdscr, "--- Kernels ---", k_opts)
+                if k_choice == 2:
+                    break
+                elif k_choice == 0:
+                    curses.endwin()
+                    manager = KernelManager()
+                    installed = manager.get_installed_kernels()
+                    print("\nInstalled Kernels:")
+                    for k in installed:
+                        print(f"- Linux {k}")
+                    input("\nPress Enter to return...")
+                    stdscr.clear()
+                elif k_choice == 1:
+                    stdscr.clear()
+                    stdscr.addstr(1, 2, "Fetching kernels from kernel.org...", curses.A_BOLD)
+                    stdscr.refresh()
                     
-                flat_list = []
-                kernel_dicts = []
-                for series, versions in kernels.items():
-                    for v in versions:
-                        v_str = v.get("version", "Unknown")
-                        moniker = v.get("moniker", "")
-                        label = f"{v_str} [{moniker.upper()}]"
-                        if v.get("iseol", False):
-                            label += " (EOL)"
-                        flat_list.append(label)
-                        kernel_dicts.append(v)
-                
-                flat_list.append("Back")
-                
-                sel_idx = interactive_menu(stdscr, "--- Select Kernel to Install ---", flat_list)
-                if sel_idx == len(flat_list) - 1:
-                    continue # Back
-                    
-                version_dict = kernel_dicts[sel_idx]
-                version_str = version_dict.get("version")
-                
-                make_default_choice = interactive_menu(stdscr, f"Set {version_str} as default GRUB entry?", ["Yes", "No"])
-                make_default = "y" if make_default_choice == 0 else "n"
-                
-                menuconfig_choice = interactive_menu(stdscr, f"Customize Kernel Configuration (menuconfig)?", ["Yes", "No (Use default)"])
-                use_menuconfig = (menuconfig_choice == 0)
-                
-                curses.endwin()
-                print(f"\nProceeding to compile and install {version_str}...")
-                
-                import subprocess, os, sys
-                vdict_repr = repr(version_dict)
-                cmd = ["sudo", sys.executable, "-c", f"""
+                    manager = KernelManager()
+                    try:
+                        kernels = manager.fetch_available_kernels()
+                        if not kernels:
+                            interactive_menu(stdscr, "No compatible kernels found.", ["Back"])
+                            continue
+                            
+                        flat_list = []
+                        kernel_dicts = []
+                        for series, versions in kernels.items():
+                            for v in versions:
+                                v_str = v.get("version", "Unknown")
+                                moniker = v.get("moniker", "")
+                                label = f"{v_str} [{moniker.upper()}]"
+                                if v.get("iseol", False):
+                                    label += " (EOL)"
+                                flat_list.append(label)
+                                kernel_dicts.append(v)
+                        
+                        flat_list.append("Back")
+                        
+                        sel_idx = interactive_menu(stdscr, "--- Select Kernel to Install ---", flat_list)
+                        if sel_idx == len(flat_list) - 1:
+                            continue # Back
+                            
+                        version_dict = kernel_dicts[sel_idx]
+                        version_str = version_dict.get("version")
+                        
+                        make_default_choice = interactive_menu(stdscr, f"Set {version_str} as default GRUB entry?", ["Yes", "No"])
+                        make_default = "y" if make_default_choice == 0 else "n"
+                        
+                        menuconfig_choice = interactive_menu(stdscr, f"Customize Kernel Configuration (menuconfig)?", ["Yes", "No (Use default)"])
+                        use_menuconfig = (menuconfig_choice == 0)
+                        
+                        curses.endwin()
+                        print(f"\nProceeding to compile and install {version_str}...")
+                        
+                        vdict_repr = repr(version_dict)
+                        cmd = ["sudo", sys.executable, "-c", f"""
 import sys
 sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}')
 from fospx_kernel_mgr.core.kernel import KernelManager
 KernelManager().compile_and_install({vdict_repr}, use_menuconfig={use_menuconfig})
 """]
-                subprocess.run(cmd)
-                
-                if make_default == "y":
-                    g_cmd = ["sudo", sys.executable, "-c", f"""
+                        subprocess.run(cmd)
+                        
+                        if make_default == "y":
+                            g_cmd = ["sudo", sys.executable, "-c", f"""
 import sys
 sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}')
 from fospx_kernel_mgr.core.grub import GrubManager
 GrubManager().set_kernel_next_boot("Advanced options for Debian GNU/Linux>Debian GNU/Linux, with Linux {version_str}")
 """]
-                    subprocess.run(g_cmd)
-                    print("Set to boot this kernel on next restart.")
-                
-            except Exception as e:
-                curses.endwin()
-                print(f"Error fetching kernels: {e}")
-            
-            input("\nPress Enter to return to main menu...")
-            stdscr.clear()
+                            subprocess.run(g_cmd)
+                            print("Set to boot this kernel on next restart.")
+                        
+                    except Exception as e:
+                        curses.endwin()
+                        print(f"Error fetching kernels: {e}")
+                    
+                    input("\nPress Enter to return to main menu...")
+                    stdscr.clear()
 
 def main():
     import argparse

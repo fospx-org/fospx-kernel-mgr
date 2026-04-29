@@ -120,9 +120,8 @@ class KernelManagerWindow(Adw.ApplicationWindow):
         page_box.append(left_box)
         page_box.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         page_box.append(right_box)
-
-        import threading
-        threading.Thread(target=self.load_kernels_async, daemon=True).start()
+        GLib.idle_add(self.load_kernels)
+        
         page = self.view_stack.add_titled(page_box, "kernels", "Kernels")
         page.set_icon_name("system-software-install-symbolic")
 
@@ -224,7 +223,7 @@ class KernelManagerWindow(Adw.ApplicationWindow):
                         btn = Gtk.Button(label="Set as Default")
                         btn.set_valign(Gtk.Align.CENTER)
                         btn.add_css_class("suggested-action")
-                        btn.connect("clicked", lambda b, t=full_title: self.default_entry.set_text(t))
+                        btn.connect("clicked", lambda b, t=f"{idx}>{child_idx}": self.default_entry.set_text(t))
                         row.add_suffix(btn)
                         
                         expander.add_row(row)
@@ -237,7 +236,7 @@ class KernelManagerWindow(Adw.ApplicationWindow):
                     btn = Gtk.Button(label="Set as Default")
                     btn.set_valign(Gtk.Align.CENTER)
                     btn.add_css_class("suggested-action")
-                    btn.connect("clicked", lambda b, t=entry["title"]: self.default_entry.set_text(t))
+                    btn.connect("clicked", lambda b, t=str(idx): self.default_entry.set_text(t))
                     row.add_suffix(btn)
                     
                     order_group.add(row)
