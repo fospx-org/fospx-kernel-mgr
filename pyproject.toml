@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fospx-kernel-mgr"
+version = "0.1.0"
+description = "Linux Custom Kernel/GRUB Manager"
+authors = [
+    {name = "Barın Güzeldemirci", email = "baringuzeldemir@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "requests",
+    "beautifulsoup4", 
+    "simple-term-menu", 
+    "rich", 
+]
+
+[project.scripts]
+fospx-kernel-mgr = "fospx_kernel_mgr.cli.main:main"
+fospx-kernel-mgr-gtk = "fospx_kernel_mgr.gui.main:main"

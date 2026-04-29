@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=FOSPX Kernel Manager
+Comment=Professional Bootloader and Kernel Utility
+Exec=fospx-kernel-mgr-gtk
+Icon=drive-harddisk-system-symbolic
+Terminal=false
+Type=Application
+Categories=System;Settings;
