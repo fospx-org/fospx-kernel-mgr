@@ -134,8 +134,15 @@ done
             return entries
             
         try:
-            with open(cfg_path, 'r') as f:
-                lines = f.readlines()
+            try:
+                with open(cfg_path, 'r') as f:
+                    lines = f.readlines()
+            except PermissionError:
+                try:
+                    out = subprocess.check_output(["sudo", "-n", "cat", cfg_path], stderr=subprocess.DEVNULL)
+                    lines = out.decode('utf-8').split('\n')
+                except Exception:
+                    return [{"title": "Permission Denied: Cannot read /boot/grub/grub.cfg", "type": "menuentry"}]
                 
             current_submenu = None
             brace_level = 0

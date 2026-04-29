@@ -16,7 +16,7 @@ class KernelManagerWindow(Adw.ApplicationWindow):
         self.set_default_size(1000, 750)
         
         style_mgr = Adw.StyleManager.get_default()
-        style_mgr.set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+        style_mgr.set_color_scheme(Adw.ColorScheme.DEFAULT)
         self.kernel_manager = KernelManager()
         self.grub_manager = GrubManager()
         self.safety_manager = SafetyManager()
@@ -424,11 +424,28 @@ sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abs
 
 
     def on_save_grub(self, btn):
-        print("Saving GRUB config...")
+        config = {
+            "GRUB_DEFAULT": self.default_entry.get_text(),
+            "GRUB_TIMEOUT": self.timeout_entry.get_text(),
+            "GRUB_CMDLINE_LINUX_DEFAULT": self.cmdline_entry.get_text(),
+            "GRUB_THEME": self.theme_entry.get_text()
+        }
+        if self.safe_mode_switch.get_active() and "nomodeset" not in config["GRUB_CMDLINE_LINUX_DEFAULT"]:
+            config["GRUB_CMDLINE_LINUX_DEFAULT"] += " nomodeset"
+            
+        cfg_repr = repr(config)
+        self._run_privileged_action(
+            f"from fospx_kernel_mgr.core.grub import GrubManager; m=GrubManager(); m.write_advanced_config({cfg_repr})",
+            "GRUB configuration saved and updated successfully."
+        )
 
     def on_install_kernel(self, btn, version):
-        make_default = self.default_switch.get_active()
-        print(f"Compiling {version}... Make Default: {make_default}")
+        vdict_repr = repr(version)
+        v_str = version.get('version', '')
+        self._run_privileged_action(
+            f"from fospx_kernel_mgr.core.kernel import KernelManager; KernelManager().compile_and_install({vdict_repr}, use_menuconfig=False)",
+            f"Kernel {v_str} compiled and installed successfully! Check Boot Manager to set it as default."
+        )
 
     def load_kernels(self):
         try:
