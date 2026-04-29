@@ -232,14 +232,14 @@ def curses_main(stdscr):
                 if k_choice == 2:
                     break
                 elif k_choice == 0:
-                    curses.endwin()
                     manager = KernelManager()
                     installed = manager.get_installed_kernels()
-                    print("\nInstalled Kernels:")
-                    for k in installed:
-                        print(f"- Linux {k}")
-                    input("\nPress Enter to return...")
-                    stdscr.clear()
+                    if not installed:
+                        interactive_menu(stdscr, "--- Installed Kernels ---", ["Back"], {0: "No local custom kernels found."})
+                    else:
+                        k_list = [f"Linux {k}" for k in installed]
+                        k_list.append("Back")
+                        interactive_menu(stdscr, "--- Installed Kernels ---", k_list)
                 elif k_choice == 1:
                     stdscr.clear()
                     stdscr.addstr(1, 2, "Fetching kernels from kernel.org...", curses.A_BOLD)
