@@ -35,8 +35,12 @@ class KconfigManager:
             return False, f"Failed to run menuconfig: {e}"
 
     def set_reproducible_build_env(self):
+        import datetime
         env = os.environ.copy()
-        env["KBUILD_BUILD_TIMESTAMP"] = "1970-01-01 00:00:00"
+        now = datetime.datetime.now()
+        env["SOURCE_DATE_EPOCH"] = str(int(now.timestamp()))
+        env["KBUILD_BUILD_TIMESTAMP"] = now.strftime("%Y-%m-%dT%H:%M:%S")
+        
         env["KBUILD_BUILD_USER"] = "fospx"
         env["KBUILD_BUILD_HOST"] = "builder"
         return env
