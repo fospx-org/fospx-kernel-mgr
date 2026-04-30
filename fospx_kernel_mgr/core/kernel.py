@@ -156,7 +156,11 @@ class KernelManager:
             subprocess.run(["cp", config_path, os.path.join(src_dir, ".config")], check=True)
             
         subprocess.run(["make", "olddefconfig"], cwd=src_dir, check=True)
-        subprocess.run(["make", "localmodconfig"], cwd=src_dir, input=b"\n"*1000, check=True)
+        subprocess.run("yes '' | make localmodconfig", shell=True, cwd=src_dir, check=True)
+        subprocess.run(["scripts/config", "--set-str", "SYSTEM_TRUSTED_KEYS", ""], cwd=src_dir, check=True)
+        subprocess.run(["scripts/config", "--set-str", "SYSTEM_REVOCATION_KEYS", ""], cwd=src_dir, check=True)
+        subprocess.run(["scripts/config", "--disable", "DEBUG_INFO_BTF"], cwd=src_dir, check=True)
+        subprocess.run(["scripts/config", "--disable", "MODULE_SIG_KEY"], cwd=src_dir, check=True)
         
         from fospx_kernel_mgr.core.kconfig import KconfigManager
         kconf = KconfigManager(src_dir)
