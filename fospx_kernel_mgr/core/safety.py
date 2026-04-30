@@ -3,19 +3,51 @@ import os
 import shutil
 
 class SafetyManager:
+    _SNAPSHOT_DEPS = ["timeshift", "btrfs-progs", "kdump-tools"]
+    _BUILD_DEPS = [
+        "build-essential",
+        "flex",
+        "bison",
+        "libncurses-dev",
+        "libssl-dev",
+        "libelf-dev",
+        "bc",
+        "rsync",
+    ]
+
     def __init__(self):
-        self.dependencies = ["timeshift", "btrfs-progs", "kdump-tools"]
+        self.dependencies = self._SNAPSHOT_DEPS + self._BUILD_DEPS
 
     def check_dependencies(self):
+        cmd_map = {
+            "timeshift":       "timeshift",
+            "btrfs-progs":     "btrfs",
+            "kdump-tools":     "kdump-config",
+            "build-essential": "gcc",
+            "flex":            "flex",
+            "bison":           "bison",
+            "libncurses-dev":  None,   # dpkg
+            "libssl-dev":      None,   # dpkg
+            "libelf-dev":      None,   # dpkg
+            "bc":              "bc",
+            "rsync":           "rsync",
+        }
         missing = []
         for dep in self.dependencies:
-            cmd_map = {
-                "timeshift": "timeshift",
-                "btrfs-progs": "btrfs",
-                "kdump-tools": "kdump-config"
-            }
-            if shutil.which(cmd_map.get(dep, dep)) is None:
-                missing.append(dep)
+            binary = cmd_map.get(dep, dep)
+            if binary is None:
+                try:
+                    result = subprocess.run(
+                        ["dpkg-query", "-W", "-f=${Status}", dep],
+                        capture_output=True, text=True
+                    )
+                    if "install ok installed" not in result.stdout:
+                        missing.append(dep)
+                except Exception:
+                    missing.append(dep)
+            else:
+                if shutil.which(binary) is None:
+                    missing.append(dep)
         return missing
 
     def install_dependencies(self):

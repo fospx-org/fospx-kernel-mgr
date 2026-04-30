@@ -1,5 +1,7 @@
 import sys
 import os
+import threading
+import subprocess
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -8,6 +10,65 @@ from fospx_kernel_mgr.core.kernel import KernelManager
 from fospx_kernel_mgr.core.grub import GrubManager
 from fospx_kernel_mgr.core.safety import SafetyManager
 from fospx_kernel_mgr.core.security import SecurityManager
+
+
+class LiveLogDialog(Adw.Window):
+    def __init__(self, title: str, parent):
+        super().__init__()
+        self.set_title(title)
+        self.set_default_size(720, 480)
+        self.set_modal(True)
+        self.set_transient_for(parent)
+        # Adw.ToolbarView requires ≥1.4
+        header = Adw.HeaderBar()
+        self._status_label = Gtk.Label(label="Running…")
+        self._status_label.add_css_class("dim-label")
+        self._status_label.set_halign(Gtk.Align.CENTER)
+        self._status_label.set_margin_top(8)
+        self._status_label.set_margin_bottom(8)
+        self._text_view = Gtk.TextView()
+        self._text_view.set_editable(False)
+        self._text_view.set_monospace(True)
+        self._text_view.set_wrap_mode(Gtk.WrapMode.CHAR)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_vexpand(True)
+        scroll.set_hexpand(True)
+        scroll.set_margin_start(12)
+        scroll.set_margin_end(12)
+        scroll.set_child(self._text_view)
+        self._close_btn = Gtk.Button(label="Close")
+        self._close_btn.set_sensitive(False)
+        self._close_btn.set_halign(Gtk.Align.CENTER)
+        self._close_btn.set_margin_top(12)
+        self._close_btn.set_margin_bottom(16)
+        self._close_btn.connect("clicked", lambda _: self.destroy())
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        root.append(header)
+        root.append(self._status_label)
+        root.append(scroll)
+        root.append(self._close_btn)
+        self.set_content(root)
+
+        self._buffer = self._text_view.get_buffer()
+
+
+    def append_line(self, line: str):
+        end_iter = self._buffer.get_end_iter()
+        self._buffer.insert(end_iter, line)
+        adj = self._text_view.get_parent().get_vadjustment()
+        if adj:
+            adj.set_value(adj.get_upper() - adj.get_page_size())
+
+    def mark_finished(self, success: bool, summary: str):
+        if success:
+            self._status_label.set_label(f"✔ {summary}")
+            self._status_label.remove_css_class("error")
+        else:
+            self._status_label.set_label(f"✘ {summary}")
+            self._status_label.add_css_class("error")
+        self._close_btn.set_sensitive(True)
+        self._close_btn.add_css_class("suggested-action" if success else "destructive-action")
+
 
 class KernelManagerWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs):
@@ -57,7 +118,7 @@ class KernelManagerWindow(Adw.ApplicationWindow):
         dialog = Gtk.AboutDialog(
             transient_for=self,
             program_name="FOSPX Kernel/GRUB Manager",
-            version="0.1.0",
+            version="0.1.1",
             license_type=Gtk.License.GPL_3_0_ONLY,
             comments="A bootloader and custom kernel management tool\nCreated for advanced OS control.",
             authors=["Barın Güzeldemirci [FOSPX]"]
@@ -268,7 +329,11 @@ class KernelManagerWindow(Adw.ApplicationWindow):
         
         dep_group = Adw.PreferencesGroup()
         self.dep_row = Adw.ActionRow(title="Install Required Tools")
-        self.dep_row.set_subtitle("Installs timeshift, btrfs-progs, kdump-tools")
+        self.dep_row.set_subtitle(
+            "Installs snapshot tools (timeshift, btrfs-progs, kdump-tools) "
+            "and kernel build prerequisites (build-essential, flex, bison, "
+            "libncurses-dev, libssl-dev, libelf-dev, bc, rsync)"
+        )
         dep_btn = Gtk.Button(label="Install Now")
         dep_btn.set_valign(Gtk.Align.CENTER)
         dep_btn.add_css_class("suggested-action")
@@ -352,43 +417,82 @@ class KernelManagerWindow(Adw.ApplicationWindow):
         page = self.view_stack.add_titled(page_box, "safety_security", "Safety & Security")
         page.set_icon_name("security-high-symbolic")
 
-    def _run_privileged_action(self, code_str, success_msg="Action completed successfully."):
-        import subprocess
-        cmd = ["pkexec", sys.executable, "-c", f"""
-import sys
-sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))}')
-{code_str}
-"""]
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode == 0:
-                GLib.idle_add(self.show_message, "Success", success_msg)
-            else:
-                GLib.idle_add(self.show_message, "Error", res.stderr or res.stdout or "Failed.")
-        except Exception as e:
-            GLib.idle_add(self.show_message, "Error", str(e))
+    def _run_privileged_action(
+        self,
+        code_str: str,
+        success_msg: str = "Action completed successfully.",
+        dialog_title: str = "Running Privileged Action",
+        on_done=None,
+    ):
+        """Run *code_str* via pkexec and stream all output live into a
+        :class:`LiveLogDialog`.  Must be called from the GTK main thread;
+        the actual subprocess runs on a daemon thread.
+
+        Args:
+            on_done: optional zero-argument callable invoked (from the reader
+                     thread) after the subprocess exits, useful for re-enabling
+                     buttons or triggering follow-up UI work.
+        """
+
+        log_dialog = LiveLogDialog(dialog_title, self)
+        log_dialog.present()
+
+        python_path = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        cmd = [
+            "pkexec", sys.executable, "-u", "-c",
+            f"import sys\nsys.path.insert(0, {python_path!r})\n{code_str}",
+        ]
+
+        def _reader():
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,          # line-buffered
+                )
+                for line in proc.stdout:
+                    GLib.idle_add(log_dialog.append_line, line)
+                proc.wait()
+                if proc.returncode == 0:
+                    GLib.idle_add(log_dialog.mark_finished, True, success_msg)
+                else:
+                    GLib.idle_add(
+                        log_dialog.mark_finished,
+                        False,
+                        f"Process exited with code {proc.returncode}.",
+                    )
+            except Exception as exc:
+                GLib.idle_add(log_dialog.mark_finished, False, str(exc))
+            finally:
+                if callable(on_done):
+                    on_done()
+
+        threading.Thread(target=_reader, daemon=True).start()
+
 
     def on_install_deps(self, btn):
         btn.set_sensitive(False)
         btn.set_label("Installing...")
-        def _do_install():
-            self._run_privileged_action(
-                "from fospx_kernel_mgr.core.safety import SafetyManager; SafetyManager().install_dependencies()",
-                "Dependencies installed successfully."
-            )
+        def _reenable():
             GLib.idle_add(btn.set_sensitive, True)
             GLib.idle_add(btn.set_label, "Install Now")
-        import threading
-        threading.Thread(target=_do_install, daemon=True).start()
+        self._run_privileged_action(
+            "from fospx_kernel_mgr.core.safety import SafetyManager; SafetyManager().install_dependencies()",
+            "Dependencies installed successfully.",
+            dialog_title="Installing Dependencies",
+            on_done=_reenable,
+        )
 
     def on_create_snapshot(self, btn):
-        def _do_snap():
-            self._run_privileged_action(
-                "from fospx_kernel_mgr.core.safety import SafetyManager; SafetyManager().create_snapshot()",
-                "Timeshift snapshot created successfully."
-            )
-        import threading
-        threading.Thread(target=_do_snap, daemon=True).start()
+        self._run_privileged_action(
+            "from fospx_kernel_mgr.core.safety import SafetyManager; SafetyManager().create_snapshot()",
+            "Timeshift snapshot created successfully.",
+            dialog_title="Creating Timeshift Snapshot",
+        )
 
     def on_analyze_panics(self, btn):
         logs = self.safety_manager.analyze_panic()
@@ -397,7 +501,8 @@ sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abs
     def on_generate_mok(self, btn):
         self._run_privileged_action(
             "from fospx_kernel_mgr.core.security import SecurityManager; SecurityManager().generate_mok()",
-            "MOK Generated in /var/lib/shim-signed/mok"
+            "MOK Generated in /var/lib/shim-signed/mok",
+            dialog_title="Generate Machine Owner Key",
         )
 
     def on_enroll_mok(self, btn):
@@ -407,7 +512,8 @@ sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abs
             return
         self._run_privileged_action(
             f"from fospx_kernel_mgr.core.security import SecurityManager; SecurityManager().enroll_mok('{pw}')",
-            "MOK Enrollment request submitted. Please reboot."
+            "MOK Enrollment request submitted. Please reboot.",
+            dialog_title="Enroll Machine Owner Key",
         )
 
     def show_message(self, title, msg):
@@ -436,7 +542,8 @@ sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abs
         cfg_repr = repr(config)
         self._run_privileged_action(
             f"from fospx_kernel_mgr.core.grub import GrubManager; m=GrubManager(); m.write_advanced_config({cfg_repr})",
-            "GRUB configuration saved and updated successfully."
+            "GRUB configuration saved and updated successfully.",
+            dialog_title="Applying GRUB Configuration",
         )
 
     def on_install_kernel(self, btn, version):
@@ -444,7 +551,8 @@ sys.path.insert(0, '{os.path.dirname(os.path.dirname(os.path.dirname(os.path.abs
         v_str = version.get('version', '')
         self._run_privileged_action(
             f"from fospx_kernel_mgr.core.kernel import KernelManager; KernelManager().compile_and_install({vdict_repr}, use_menuconfig=False)",
-            f"Kernel {v_str} compiled and installed successfully! Check Boot Manager to set it as default."
+            f"Kernel {v_str} compiled and installed successfully! Check Boot Manager to set it as default.",
+            dialog_title=f"Compiling & Installing Linux {v_str}",
         )
 
     def load_kernels(self):

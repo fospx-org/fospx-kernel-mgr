@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fospx-kernel-mgr"
-version = "0.1.0"
+version = "0.1.1"
 description = "Linux Custom Kernel/GRUB Manager"
 authors = [
     {name = "Barın Güzeldemirci", email = "baringuzeldemir@gmail.com"}

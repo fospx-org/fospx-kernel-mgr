@@ -1,5 +1,11 @@
+fospx-kernel-mgr (0.1.1) bullseye; urgency=medium
+
+  * Inital pre-release 2. Testing phase 2
+
+ -- Barın Güzeldemirci <baringuzeldemir@gmail.com>  Thu, 30 Apr 2026 01:29:00 +0300
+
 fospx-kernel-mgr (0.1.0) bullseye; urgency=medium
 
-  * Initial release 2. Testing phase 1
+  * Initial pre-release 1. Testing phase 1
 
  -- Barın Güzeldemirci <baringuzeldemir@gmail.com>  Wed, 29 Apr 2026 00:00:00 +0300

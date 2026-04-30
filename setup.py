@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="fospx-kernel-mgr",
-    version="0.1.0",
+    version="0.1.1",
     description="Linux Custom Kernel/GRUB Manager",
     author="Barın Güzeldemirci",
     author_email="baringuzeldemir@gmail.com",
