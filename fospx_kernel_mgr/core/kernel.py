@@ -149,13 +149,14 @@ class KernelManager:
             
         src_dir = self.download_and_extract(version, source_url, pgp_url)
         
-        print(f"Configuring kernel {version} using olddefconfig...")
+        print(f"Configuring tailored kernel {version} using localmodconfig...")
         current_kernel = os.uname().release
         config_path = f"/boot/config-{current_kernel}"
         if os.path.exists(config_path):
             subprocess.run(["cp", config_path, os.path.join(src_dir, ".config")], check=True)
             
         subprocess.run(["make", "olddefconfig"], cwd=src_dir, check=True)
+        subprocess.run(["make", "localmodconfig"], cwd=src_dir, input=b"\n"*1000, check=True)
         
         from fospx_kernel_mgr.core.kconfig import KconfigManager
         kconf = KconfigManager(src_dir)
